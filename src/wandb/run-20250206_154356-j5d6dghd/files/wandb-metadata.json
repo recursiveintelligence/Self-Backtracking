@@ -1,0 +1,175 @@
+{
+    "os": "Linux-5.15.0-127-generic-x86_64-with-glibc2.31",
+    "python": "3.11.10",
+    "heartbeatAt": "2025-02-06T07:43:57.959846",
+    "startedAt": "2025-02-06T07:43:56.014868",
+    "docker": null,
+    "cuda": null,
+    "args": [
+        "--config",
+        "../configs/sft.conf"
+    ],
+    "state": "running",
+    "program": "/data/code/Self-BackTracking/src/train.py",
+    "codePathLocal": "train.py",
+    "codePath": "src/train.py",
+    "git": {
+        "remote": "https://github.com/LAMDASZ-ML/Self-Backtracking.git",
+        "commit": "3ef07cd31baf514ccf86ca7de9ab2d35d72104f7"
+    },
+    "email": "1678334576@qq.com",
+    "root": "/data/code/Self-BackTracking",
+    "host": "Ubuntu20",
+    "username": "jinyx",
+    "executable": "/home/jinyx/anaconda3/envs/backtrack/bin/python",
+    "cpu_count": 12,
+    "cpu_count_logical": 24,
+    "cpu_freq": {
+        "current": 3.419833333333333,
+        "min": 1200.0,
+        "max": 4650.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4800.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4800.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4700.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4700.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 1.576,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4800.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4800.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4700.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4600.0
+        },
+        {
+            "current": 3.5,
+            "min": 1200.0,
+            "max": 4700.0
+        }
+    ],
+    "disk": {
+        "/": {
+            "total": 467.8886032104492,
+            "used": 427.805419921875
+        }
+    },
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "gpu_count": 2,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA GeForce RTX 3090",
+            "memory_total": 25769803776
+        },
+        {
+            "name": "NVIDIA GeForce RTX 3090",
+            "memory_total": 25769803776
+        }
+    ],
+    "memory": {
+        "total": 31.02566909790039
+    }
+}

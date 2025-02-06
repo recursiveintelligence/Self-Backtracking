@@ -1,0 +1,28 @@
+
+config.json: 100%|████████████████████████████████████████████████████████████████████████| 935/935 [00:00<00:00, 4.93MB/s]
+Traceback (most recent call last):
+  File "/data/code/Self-BackTracking/src/train.py", line 215, in <module>
+    main(args)
+  File "/data/code/Self-BackTracking/src/train.py", line 54, in main
+    model = AutoModelForCausalLM.from_pretrained("unsloth/Llama-3.2-1B")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/transformers/models/auto/auto_factory.py", line 564, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4264, in from_pretrained
+    ) = cls._load_pretrained_model(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4712, in _load_pretrained_model
+    error_msgs = _load_state_dict_into_model(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/transformers/modeling_utils.py", line 724, in _load_state_dict_into_model
+    load(model_to_load, state_dict, prefix=start_prefix, assign_to_params_buffers=assign_to_params_buffers)
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/transformers/modeling_utils.py", line 722, in load
+    load(child, state_dict, prefix + name + ".", assign_to_params_buffers)
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/transformers/modeling_utils.py", line 722, in load
+    load(child, state_dict, prefix + name + ".", assign_to_params_buffers)
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/transformers/modeling_utils.py", line 718, in load
+    module._load_from_state_dict(*args)
+  File "/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/torch/nn/modules/module.py", line 2040, in _load_from_state_dict
+    param.copy_(input_param)
+KeyboardInterrupt

@@ -5,7 +5,8 @@ import random
 
 import torch
 from accelerate import Accelerator
-from datasets import load_dataset
+from datasets import load_dataset,DatasetDict
+
 from transformers import AutoTokenizer
 from transformers import DataCollatorForSeq2Seq
 from transformers import AutoModelForCausalLM
@@ -69,18 +70,16 @@ def main(args):
     print(f"Number of parameters: {model.num_parameters()}")
 
     # load dataset
-    train_file = os.path.join(config["data_dir"], config["train_file"])
-    val_file = os.path.join(config["data_dir"], config["val_file"])
-    # val_target_file = os.path.join(config["data_dir"], config["val_target_file"])
+    dataset = load_dataset("yangxw/countdown-backtracking")
 
-    hf_datasets = load_dataset(
-        "json",
-        data_files={
-            "train": train_file,
-            "val": val_file
-            # "val_target": val_target_file,
-        },
-    )
+    val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=False)
+    hf_datasets = DatasetDict({
+        'train': dataset['train'],
+        'val': val_split['train'],
+        # 'val_new': val_split['test'],
+    })
+
+    
     random_indices = random.sample(range(len(hf_datasets["train"])), int(config["num_train"]))
     hf_datasets["train"] = hf_datasets["train"].select(random_indices)
 
@@ -98,6 +97,8 @@ def main(args):
             + tokenizer.eos_token
             for e in range(len(element["search_path"]))
         ]
+        print(text[0])
+        exit(0)
         outputs = tokenizer(
             text,
             truncation=True,
@@ -196,7 +197,7 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--ckpt", type=str, default=None)
     parser.add_argument("--reset", action="store_true")
-    parser.add_argument("--wandb", action=argparse.BooleanOptionalAction, default=True)#True
+    parser.add_argument("--wandb", action=argparse.BooleanOptionalAction, default=False)
 
     args = parser.parse_args()
     main(args)
