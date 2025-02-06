@@ -1,3 +1,0 @@
-  0%|                                                                                            | 0/46875 [00:00<?, ?it/s]`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
-`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
-/home/jinyx/anaconda3/envs/backtrack/lib/python3.11/site-packages/torch/nn/parallel/_functions.py:68: UserWarning: Was asked to gather along dimension 0, but all input tensors were scalars; will instead unsqueeze and return a vector.
