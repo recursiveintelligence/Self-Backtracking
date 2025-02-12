@@ -1,12 +1,10 @@
 # Step Back to Leap Forward: Self-Backtracking for Boosting Reasoning of Language Models
 
-<div align="center">
-  [![Arxiv](https://img.shields.io/badge/arXiv-2502.04404-b31b1b.svg)](https://www.arxiv.org/abs/2502.04404)
-  [![Hugging Face](https://img.shields.io/badge/Hugging%20Face-2502.04404-yellow.svg)](https://huggingface.co/papers/2502.04404)
-  [![GitHub stars](https://img.shields.io/github/stars/LAMDASZ-ML/Self-BackTracking.svg?style=social)](https://github.com/LAMDASZ-ML/Self-BackTracking/stargazers)
-  [![GitHub last commit](https://img.shields.io/github/last-commit/LAMDASZ-ML/Self-BackTracking.svg)](https://github.com/LAMDASZ-ML/Self-BackTracking)
-  [![Home Page](https://img.shields.io/badge/Home-Page-blue.svg)](https://github.com/LAMDASZ-ML/Self-BackTracking)
-</div>
+[![Arxiv](https://img.shields.io/badge/arXiv-2502.04404-b31b1b.svg)](https://www.arxiv.org/abs/2502.04404)
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-2502.04404-yellow.svg)](https://huggingface.co/papers/2502.04404)
+[![GitHub last commit](https://img.shields.io/github/last-commit/LAMDASZ-ML/Self-BackTracking.svg)](https://github.com/LAMDASZ-ML/Self-BackTracking)
+[![Home Page](https://img.shields.io/badge/Home-Page-blue.svg)](https://github.com/LAMDASZ-ML/Self-BackTracking)
+[![GitHub stars](https://img.shields.io/github/stars/LAMDASZ-ML/Self-BackTracking.svg?style=social)](https://github.com/LAMDASZ-ML/Self-BackTracking/stargazers)
 
 A novel self-backtracking method for improving language model reasoning.
 
@@ -18,11 +16,8 @@ This repository implements the Self-BackTracking method, that equips LLMs with t
 ## Dataset and Model
 The project utilizes the Countdown dataset, which is pre-constructed and accessible on Hugging Face. Additionally, we have open-sourced our trained model based on Llama-3.2-1B.
 
-<div align="center">
-  [![Dataset](https://img.shields.io/badge/Dataset-Countdown-blue.svg)](https://huggingface.co/datasets/yangxw/countdown-backtracking)
-  [![Model](https://img.shields.io/badge/Model-countdown--backtrack-blue.svg)](https://huggingface.co/yangxw/Llama-3.2-1B-countdown-backtrack)
-</div>
-
+[![Dataset](https://img.shields.io/badge/Dataset-Countdown-blue.svg)](https://huggingface.co/datasets/yangxw/countdown-backtracking)
+[![Model](https://img.shields.io/badge/Model-countdown--backtrack-blue.svg)](https://huggingface.co/yangxw/Llama-3.2-1B-countdown-backtrack)
 ## Getting Started
 
 ### Training
