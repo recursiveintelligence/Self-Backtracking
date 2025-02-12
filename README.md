@@ -22,31 +22,44 @@ The project utilizes the Countdown dataset, which is pre-constructed and accessi
 ### Training
 To train the model:
 
-``` bash
-CUDA_VISIBLE_DEVICES=0 python train.py --config ../configs/sft.conf
+```bash
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --config ../configs/sft.conf
 ```
 You can change the parameters in the `configs/sft.conf` file.
 
 If you want to use multiple GPUs:
-``` bash
-accelerate launch --config_file ../configs/accelerate.yaml train.py --config ../configs/sft.conf
+```bash
+accelerate launch \
+    --config_file ../configs/accelerate.yaml \
+    train.py \
+    --config ../configs/sft.conf
 ```
 
 ### Inference
 To inference the model using our self-backtracking method, you can run the following command:
-``` bash
-CUDA_VISIBLE_DEVICES=0 python eval_search.py --num 5000 --ckpt [your_model_ckpt] --data [val/val_new]  --decoder self_backtrack --b 1 --n 32
+```bash
+CUDA_VISIBLE_DEVICES=0 python eval_search.py \
+    --num 5000 \
+    --ckpt [your_model_ckpt] \
+    --data [val/val_new] \
+    --decoder self_backtrack \
+    --b 1 \
+    --n 32
 ```
 --ckpt defaults to `yangxw/Llama-3.2-1B-countdown-backtrack`. You can use our trained model available on Hugging Face.
 
 ### Self-Improvement
 To further improve the model, you can run the following command:
-``` bash
-CUDA_VISIBLE_DEVICES=0 python train_self_improvement.py --num 5000 --past_model [your_model_ckpt] --data [val/val_new]
+```bash
+CUDA_VISIBLE_DEVICES=0 python train_self_improvement.py \
+    --num 5000 \
+    --past_model [your_model_ckpt] \
+    --data [val/val_new]
 ```
 
 ## Results
-![Results](images/results.png)
+![Results](images/tab.png)
 ## Citation
 If you use this work, please cite it as follows:
 
