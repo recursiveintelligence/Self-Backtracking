@@ -12,6 +12,7 @@ from transformers import (
     TrainingArguments,
     DataCollatorForSeq2Seq
 )
+from datasets import load_dataset, DatasetDict
 from decoder import DECODER_DICT
 from eval_search import eval_ll
 import wandb
@@ -23,17 +24,16 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--num", type=int, default=5000)
     parser.add_argument("--offset", type=int, default=0)
-    parser.add_argument("--data_dir", type=str, default="../data/")
-    parser.add_argument("--data", type=str, default="val_backtrack.json")
+    parser.add_argument("--data", type=str, default="val")
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--ctx", type=int, default=128)
     parser.add_argument("--decoder", type=str, default='self_backtrack')
-    parser.add_argument("--backtrack_times", type=int, default=1)
     parser.add_argument("--temperature", type=float, default=0.7)
-    parser.add_argument("--k", type=int, default=16)
-    
+    parser.add_argument("--b", type=int, default=1)
+    parser.add_argument("--n", type=int, default=16)
+    parser.add_argument("--past_model", type=str, default="yangxw/Llama-3.2-1B-countdown-backtrack")
     # Training related arguments
-    parser.add_argument("--output_dir", type=str)
+    parser.add_argument("--output_dir", type=str, default="results_self_improvement")
     parser.add_argument("--num_train_epochs", type=int, default=3)
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
@@ -55,7 +55,7 @@ def get_training_examples(index,model, tokenizer, data, args):
         + "->target "
         + str(sample['target'])
         + "\n###Response:\n"             
-        for sample in data[args.offset:args.num]
+        for sample in data
     ]
     outputs, accuracy = eval_ll(
         args,
@@ -76,13 +76,12 @@ def get_training_examples(index,model, tokenizer, data, args):
     
     for i, output in enumerate(outputs):
         if output["is_correct"]:
-        # if not output["is_backtrack"]:
             training_data["nums"].append(data[i]["nums"])
             training_data["target"].append(data[i]["target"])
             training_data["search_path"].append(output["model_output"].split('<|begin_of_text|>')[1])
     print(len(training_data))
     # Save evaluation results
-    results_file = os.path.join(args.output_dir, f"eval_results_{index}_{args.decoder}_{args.k}.json")
+    results_file = os.path.join(args.output_dir, f"eval_results_{index}_{args.decoder}_{args.n}_{args.b}.json")
     os.makedirs(args.output_dir, exist_ok=True)
     with open(results_file, "w") as f:
         json.dump({
@@ -159,6 +158,7 @@ def train_on_successful_examples(model, tokenizer, training_data, args):
 
 def main():
     args = parse_args()
+    args.output_dir=args.output_dir+'_'+args.data
     # Set random seed
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -168,13 +168,27 @@ def main():
         wandb.init(project="self-improvement-training")
     
     # Load evaluation data
-    with open(os.path.join(args.data_dir, args.data), "r") as f:
-        eval_data = json.load(f)
+    dataset = load_dataset("yangxw/countdown-backtracking")
+
+    val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=False)
+    hf_datasets = DatasetDict({
+        'train': dataset['train'],
+        'val': val_split['train'],
+        'val_new': val_split['test'],
+    })
+    if args.data == 'val':
+        data = hf_datasets['val']
+    elif args.data == 'val_new':
+        data = hf_datasets['val_new']
+    else:
+        raise ValueError(f"Unknown data: {args.data}")
+
+    eval_data = data.select(range(args.offset, args.num))
     
     for t in range(args.times):
         # Load model and tokenizer
         if t==0:
-            model_save_path_past = "your path"
+            model_save_path_past = args.past_model
         else:
             model_save_path_past = os.path.join(args.output_dir, f"model_iteration_{t}")
         model = AutoModelForCausalLM.from_pretrained(model_save_path_past, torch_dtype=torch.bfloat16)
@@ -182,31 +196,8 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
         
         
-        if t == 0:
-            training_data = {
-                "nums": [],
-                "target": [],
-                "search_path": [],
-            }
-            
-            path = "your_path.json".format(args.data.split(".")[0], args.k, args.backtrack_times)
-            
-            if os.path.exists(path):
-                with open(path, "r") as f:
-                    model_output_data = json.load(f)
-                for i in range(len(model_output_data['output'])):
-                    if model_output_data['output'][i]["is_correct"]:
-                        training_data["nums"].append(eval_data[i]["nums"])
-                        training_data["target"].append(eval_data[i]["target"])
-                        training_data["search_path"].append(model_output_data['output'][i]["model_output"].split('<|begin_of_text|>')[1])
-            else:
-                # Get successful examples
-                print(f"Evaluating model to collect successful examples for iteration {t}...")
-                training_data, accuracy = get_training_examples(t, model, tokenizer, eval_data, args)
-        else:
-            # Get successful examples
-            print(f"Evaluating model to collect successful examples for iteration {t}...")
-            training_data, accuracy = get_training_examples(t, model, tokenizer, eval_data, args)
+        print(f"Evaluating model to collect successful examples for iteration {t}...")
+        training_data, accuracy = get_training_examples(t, model, tokenizer, eval_data, args)
         print(f"Collected {len(training_data['nums'])} successful examples for training")
         # exit(0)
         if args.wandb:

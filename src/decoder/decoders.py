@@ -83,16 +83,17 @@ class SelfBackTrackingDecoder(BaseDecoder):
         else:
             return before_second_last_input_ids
         
-    def decode(self, input_ids, max_length,k=8,backtrack_times=2,temperature=0.7,*args,**kwargs):
-        self.k=k
-        self.n=int(np.sqrt(k))
+    def decode(self, input_ids, max_length,b=1,n=32,temperature=0.7,*args,**kwargs):
+        self.b=b
+        self.n2=int(np.sqrt(b))
+        self.n=n
         self.temperature=temperature
         self.init_input_ids=input_ids
         self.model.eval()
         self.candidate_outputs=[]
         self.visited_state=[self.tokenizer.decode(input_ids[0], skip_special_tokens=True)]
         next_input_ids_list=[input_ids]
-        for t in range(backtrack_times):
+        for t in range(b+1):
             next_input_ids_list_new=[]
             for generated_ids in next_input_ids_list:
                 # print(generated_ids)
@@ -106,24 +107,19 @@ class SelfBackTrackingDecoder(BaseDecoder):
                             pad_token_id=self.tokenizer.eos_token_id,
                             input_ids=generated_ids,
                             max_length=max_length,            
-                            num_return_sequences=self.k,   
+                            num_return_sequences=self.n,   
                             do_sample=True,                          
                             temperature=self.temperature,             
-                            num_beams=self.k,
-                            # early_stopping=True,
+                            num_beams=self.n,
                             output_scores=True,
                             return_dict_in_generate=True,
-                            # stop_strings=['<backtrack>','Goal Reached!']
                         )
                     except Exception as e:
                         print(e)
                         continue
                         
-                # scores = outputs.sequences_scores
                 with torch.no_grad():
                     logits_batch = self.model(outputs.sequences).logits
-                # print(logits_batch[0][-1])
-                # log_logits_batch = F.log_softmax(logits_batch, dim=-1)
                     log_probs = F.log_softmax(logits_batch, dim=-1)
                     # Shift input_ids and logits for next-token prediction
                     shift_logits = log_probs[:, :-1, :].contiguous()
@@ -151,13 +147,11 @@ class SelfBackTrackingDecoder(BaseDecoder):
                 scores = gathered_log_probs.sum(dim=1) / seq_lengths     
                       
                 cur_text=self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=False)
-                # print(self.k)
-                # print(cur_text)
-                for i in range(self.k):
+                for i in range(self.n):
                     if 'Goal Reached!' in cur_text[i]:
                         
                         self.candidate_outputs.append((outputs.sequences[i].unsqueeze(0),cur_text[i],scores[i]))
-                    if len(next_input_ids_list_new)<self.n and '<backtrack>' in cur_text[i]:
+                    if len(next_input_ids_list_new)<self.n2 and '<backtrack>' in cur_text[i]:
                         next_state=self.backtrack(outputs.sequences[i])
                         next_state_text=self.tokenizer.decode(next_state[0], skip_special_tokens=True)
                         if not next_state_text in self.visited_state:
@@ -166,11 +160,10 @@ class SelfBackTrackingDecoder(BaseDecoder):
                     
                 
             next_input_ids_list=next_input_ids_list_new
-            # print(len(self.candidate_outputs))
+
         
         self.candidate_outputs=self.agg()
         if self.candidate_outputs:
-            # print(self.candidate_outputs)
             best_sequence = max(self.candidate_outputs, key=lambda x: x[2])[0]
             return best_sequence
         else:

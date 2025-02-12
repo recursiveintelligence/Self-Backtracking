@@ -82,7 +82,7 @@ def main(args):
     
     random_indices = random.sample(range(len(hf_datasets["train"])), int(config["num_train"]))
     hf_datasets["train"] = hf_datasets["train"].select(random_indices)
-
+    print('Dataset Length: ', len(hf_datasets["train"] ))
     context_length = config["context_length"]
     tokenizer.model_max_length = context_length
 
@@ -97,8 +97,6 @@ def main(args):
             + tokenizer.eos_token
             for e in range(len(element["search_path"]))
         ]
-        print(text[0])
-        exit(0)
         outputs = tokenizer(
             text,
             truncation=True,
@@ -161,14 +159,11 @@ def main(args):
         save_total_limit=config["save_total_limit"],
         save_steps=config["save_steps"],
         seed=config["seed"],
-        bf16=False,
+        bf16=True,
         push_to_hub=False,
         report_to="wandb",
         run_name=config["name"],
-        ddp_find_unused_parameters=False,
-        load_best_model_at_end=True,
-        metric_for_best_model="valid_loss",
-        greater_is_better=False,
+        ddp_find_unused_parameters=False
     )
 
     trainer = Trainer(
@@ -186,7 +181,7 @@ def main(args):
         trainer.train(resume_from_checkpoint=args.ckpt)
     else:
         trainer.train()
-        output_dir = "../output/final_model"
+        output_dir = os.path.join(config["output_dir"],"final_model")
         trainer.save_model(output_dir)
         tokenizer.save_pretrained(output_dir)
 

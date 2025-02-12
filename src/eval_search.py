@@ -7,6 +7,7 @@ import re
 import numpy as np
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from datasets import load_dataset,DatasetDict
 from decoder import *
 from peft import PeftModel
 
@@ -97,7 +98,7 @@ def eval_ll(args,model, tokenizer, data, batch_size=128, context_len=1024, tempe
         else:
             raise ValueError(f"Unknown decoder name: {args.decoder}")
         
-        outputs = decoder.decode(input_ids=inputs, max_length=50,backtrack_times=args.backtrack_times,k=args.k)
+        outputs = decoder.decode(input_ids=inputs, max_length=50,b=args.b,n=args.n)
         if outputs is None:
             output_texts=['None']
         else:
@@ -142,20 +143,20 @@ def eval_ll(args,model, tokenizer, data, batch_size=128, context_len=1024, tempe
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=4)
-    parser.add_argument("--ckpt", type=str, help="path to checkpoint")
+    parser.add_argument("--ckpt", type=str, default="yangxw/Llama-3.2-1B-countdown-backtrack", help="your trained model path/name")
     parser.add_argument("-n", "--num",type=int, default=5000)
     parser.add_argument("-o", "--offset",type=int, default=0)
-    parser.add_argument("--data_dir", type=str, default="../data_new/")
-    parser.add_argument("-d", "--data",type=str, default="val_backtrack.json")
+    parser.add_argument("-d", "--data",type=str, default="val")
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--ctx", type=int, default=1024)
     parser.add_argument("--decoder", type=str, required=True, choices=DECODER_DICT.keys(), help='Name of the decoder to use')
-    parser.add_argument("--backtrack_times", type=int, default=3)
-    parser.add_argument("--k", type=int, default=8)
+    parser.add_argument("--b", type=int, default=1)
+    parser.add_argument("--n", type=int, default=32)
     parser.add_argument("--use_lora", action='store_true', help="Use LoRA for model loading")
     
     args = parser.parse_args()
     torch.manual_seed(args.seed)
+    
     tokenizer = AutoTokenizer.from_pretrained(args.ckpt, padding_side='left')
     tokenizer.pad_token = tokenizer.eos_token
     if args.use_lora:
@@ -167,16 +168,27 @@ def main():
         # adapter_path = os.path.join(args.ckpt, "adapter_model.safetensors")
         model = PeftModel.from_pretrained(base_model, args.ckpt)
     else:
-        # model = AutoModelForCausalLM.from_pretrained(args.ckpt, torch_dtype=torch.bfloat16)
         model = AutoModelForCausalLM.from_pretrained(args.ckpt, torch_dtype=torch.bfloat16)
 
     model.eval()
     model.cuda()
 
-    data_file = os.path.join(args.data_dir, args.data)
+    dataset = load_dataset("yangxw/countdown-backtracking")
 
-    with open(data_file, "r") as json_file:
-        data = json.load(json_file)
+    val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=False)
+    hf_datasets = DatasetDict({
+        'train': dataset['train'],
+        'val': val_split['train'],
+        'val_new': val_split['test'],
+    })
+    if args.data == 'val':
+        data = hf_datasets['val']
+    elif args.data == 'val_new':
+        data = hf_datasets['val_new']
+    else:
+        raise ValueError(f"Unknown data: {args.data}")
+
+    data = data.select(range(args.offset, args.num))
 
     predictions = []
     tokenizer.padding_side = "left"
@@ -185,21 +197,19 @@ def main():
                     + "->target "
                     + str(sample['target'])
                     + "\n###Response:\n"             
-                    for sample in data[args.offset:args.num]
+                    for sample in data
                 ]
 
-    len_nums = [len(sample['nums']) for sample in data[args.offset:args.num]]
+    len_nums = [len(sample['nums']) for sample in data]
     data_4 = [d for d, l in zip(test_prompts, len_nums) if l == 4]
 
     output,accuracy = eval_ll(args,model, tokenizer, test_prompts, batch_size=args.batch_size, context_len=args.ctx)
     len_pred_nums = [4 for _ in predictions]
 
-    if args.decoder == 'topk' or args.decoder == 'oracle':
-        results_file = os.path.join(args.ckpt, f"results_{(args.data[:-5]).replace('/','_')}_{args.offset}_{args.num}_{args.decoder}_{args.k}.json")
-    elif args.decoder == 'recbon':
-        results_file = os.path.join(args.ckpt, f"results_{(args.data[:-5]).replace('/','_')}_{args.offset}_{args.num}_{args.decoder}_{args.k}_{args.backtrack_times}.json")
+    if args.decoder == 'self_backtrack':
+        results_file =  f"results_{args.data}_{args.offset}_{args.num}_{args.decoder}_{args.n}_{args.b}.json"
     else:
-        results_file = os.path.join(args.ckpt, f"results_{(args.data[:-5]).replace('/','_')}_{args.offset}_{args.num}_{args.decoder}.json")
+        results_file =  f"results_{args.data}_{args.offset}_{args.num}_{args.decoder}.json"
     with open(results_file, "w") as f:
         json.dump({'output':output,'accuracy':accuracy}, f, indent=4)
 if __name__ == "__main__":
