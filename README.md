@@ -65,7 +65,7 @@ CUDA_VISIBLE_DEVICES=0 python train_self_improvement.py \
 If you use this work, please cite it as follows:
 
 ```
-@article{selfbacktracking2023,
+@article{selfbacktracking,
   title={Step Back to Leap Forward: Self-Backtracking for Boosting Reasoning of Language Models},
   author={Xiao-Wen Yang and Xuan-Yi Zhu and Wen-Da Wei and Ding-Chu Zhang and Jie-Jing Shao and Zhi Zhou and Lan-Zhe Guo and Yu-Feng Li},
   journal={arXiv preprint arXiv:2502.04404},
