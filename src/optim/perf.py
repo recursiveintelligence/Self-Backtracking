@@ -91,6 +91,12 @@ def apply_performance_patches(model):
         try_patch_rope(model)
     except Exception:
         pass
+    # Optional Triton FlashAttention with fused RoPE (on-the-fly pre-apply inside patched forward)
+    try:
+        from .flash_attn_triton import try_patch_llama_flash_rope
+        try_patch_llama_flash_rope(model)
+    except Exception:
+        pass
     # Hint non-reentrant checkpointing when supported (lower overhead in PyTorch 2.3+)
     try:
         if hasattr(model, "gradient_checkpointing_enable"):
