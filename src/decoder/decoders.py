@@ -5,6 +5,8 @@ import copy
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch.nn.functional as F
+from .stopping import make_stop_criteria
+from collections import OrderedDict
 class BaseDecoder(ABC):
     """
     Abstract base class for decoders, defining a common interface for implementing custom decoding algorithms.
@@ -48,6 +50,8 @@ class GreedyDecoder(BaseDecoder):
 class SelfBackTrackingDecoder(BaseDecoder):
     def __init__(self, model, tokenizer, *args, **kwargs):
         super().__init__(model, tokenizer, *args, **kwargs)
+        self._past_cache = OrderedDict()
+        self._past_cache_cap = 8
     def agg(self):
         if not self.candidate_outputs:
             return []
@@ -83,7 +87,7 @@ class SelfBackTrackingDecoder(BaseDecoder):
         else:
             return before_second_last_input_ids
         
-    def decode(self, input_ids, max_length,b=1,n=32,temperature=0.7,*args,**kwargs):
+    def decode(self, input_ids, max_length, b=1, n=32, temperature=0.7, *args, **kwargs):
         self.b=b
         self.n2=int(np.sqrt(b))
         self.n=n
@@ -93,6 +97,30 @@ class SelfBackTrackingDecoder(BaseDecoder):
         self.candidate_outputs=[]
         self.visited_state=[self.tokenizer.decode(input_ids[0], skip_special_tokens=True)]
         next_input_ids_list=[input_ids]
+        stop_criteria = make_stop_criteria(self.tokenizer, ["<backtrack>", "Goal Reached!"])
+
+        def get_or_build_past(prefix_ids: torch.Tensor):
+            key = tuple(prefix_ids[0].tolist())
+            cached = self._past_cache.get(key, None)
+            if cached is not None:
+                # refresh LRU
+                self._past_cache.move_to_end(key)
+                return cached
+            with torch.no_grad():
+                attn = torch.ones_like(prefix_ids, device="cuda")
+                out = self.model(
+                    input_ids=prefix_ids.cuda(),
+                    attention_mask=attn,
+                    use_cache=True,
+                    return_dict=True,
+                )
+                last_tok = prefix_ids[:, -1:].cuda()
+                past = out.past_key_values
+            self._past_cache[key] = (past, attn, last_tok)
+            # Evict if over capacity
+            if len(self._past_cache) > self._past_cache_cap:
+                self._past_cache.popitem(last=False)
+            return self._past_cache[key]
         for t in range(b+1):
             next_input_ids_list_new=[]
             for generated_ids in next_input_ids_list:
@@ -101,55 +129,36 @@ class SelfBackTrackingDecoder(BaseDecoder):
                     # print(self.tokenizer.decode(generated_ids[0]))
                     generated_ids=generated_ids.cuda()
                     try:
+                        # Reuse KV cache for this prefix to avoid recomputing context
+                        past, attn, last_tok = get_or_build_past(generated_ids)
                         outputs = self.model.generate(
-                            tokenizer=self.tokenizer,
-                            attention_mask=torch.ones_like(generated_ids).cuda(),
+                            attention_mask=attn,
                             pad_token_id=self.tokenizer.eos_token_id,
-                            input_ids=generated_ids,
-                            max_length=max_length,            
-                            num_return_sequences=self.n,   
-                            do_sample=True,                          
-                            temperature=self.temperature,             
+                            input_ids=last_tok,
+                            past_key_values=past,
+                            max_new_tokens=max_length,
+                            num_return_sequences=self.n,
+                            do_sample=True,
+                            temperature=self.temperature,
                             num_beams=self.n,
                             output_scores=True,
                             return_dict_in_generate=True,
+                            stopping_criteria=stop_criteria,
                         )
                     except Exception as e:
                         print(e)
                         continue
-                        
-                with torch.no_grad():
-                    logits_batch = self.model(outputs.sequences).logits
-                    log_probs = F.log_softmax(logits_batch, dim=-1)
-                    # Shift input_ids and logits for next-token prediction
-                    shift_logits = log_probs[:, :-1, :].contiguous()
-                    shift_labels = outputs.sequences[:, 1:].contiguous()
-                    
-                    # Create mask to exclude init input tokens
-                    input_length = input_ids.shape[1]
-                    mask = torch.ones_like(shift_labels, dtype=torch.bool)
-                    mask[:, :input_length-1] = False  # Mask out the input tokens (-1 due to shift)
-                    
-                    # Gather the log probabilities of the actual next tokens
-                    gathered_log_probs = torch.gather(
-                        shift_logits, 
-                        dim=2, 
-                        index=shift_labels.unsqueeze(-1)
-                    ).squeeze(-1)  # [batch_size, seq_len-1]
-                    
-                    # Apply mask to gathered_log_probs
-                    gathered_log_probs = gathered_log_probs * mask
-                    
-                    # Calculate sequence lengths (excluding input and padding)
-                    seq_lengths = mask.sum(dim=1)
-                    
-                    # Calculate NLL for each sequence in batch (only for generated part)
-                scores = gathered_log_probs.sum(dim=1) / seq_lengths     
-                      
+                # Use sequences_scores directly from generate (avoids extra forward)
+                seq_scores = getattr(outputs, "sequences_scores", None)
+                if seq_scores is None:
+                    # Fallback to zeros if scores are not returned (should not happen with beams)
+                    scores = torch.zeros(outputs.sequences.size(0), device=generated_ids.device)
+                else:
+                    scores = seq_scores
+
                 cur_text=self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=False)
                 for i in range(self.n):
                     if 'Goal Reached!' in cur_text[i]:
-                        
                         self.candidate_outputs.append((outputs.sequences[i].unsqueeze(0),cur_text[i],scores[i]))
                     if len(next_input_ids_list_new)<self.n2 and '<backtrack>' in cur_text[i]:
                         next_state=self.backtrack(outputs.sequences[i])
@@ -157,7 +166,7 @@ class SelfBackTrackingDecoder(BaseDecoder):
                         if not next_state_text in self.visited_state:
                             next_input_ids_list_new.append(next_state)
                             self.visited_state.append(next_state_text)
-                    
+                
                 
             next_input_ids_list=next_input_ids_list_new
 

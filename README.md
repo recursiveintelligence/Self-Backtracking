@@ -92,6 +92,18 @@ CUDA_VISIBLE_DEVICES=0 python eval_search.py \
 ```
 --ckpt defaults to `yangxw/Llama-3.2-1B-countdown-backtrack`. You can use our trained model available on Hugging Face.
 
+### Performance Fast Path
+- SDPA/TF32 flags and optional TorchInductor compile are applied via `src/optim/perf.py` when models load in `src/train.py`, `src/eval_search.py`, and `src/train_self_improvement.py`.
+- To JIT-compile the model with TorchInductor, set `AZR_COMPILE=1` (falls back safely if unsupported):
+
+```
+AZR_COMPILE=1 CUDA_VISIBLE_DEVICES=0 python src/eval_search.py --decoder self_backtrack --num 128
+```
+
+- Training uses fused AdamW (`optim="adamw_torch_fused"`) for faster optimizer steps.
+
+- Optional Triton RMSNorm: enable with `AZR_TRITON_RMSNORM=1` if Triton is available to replace Llama RMSNorm with a fused Triton kernel.
+
 ### Self-Improvement
 To further improve the model, you can run the following command:
 ```bash

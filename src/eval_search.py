@@ -10,6 +10,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset,DatasetDict
 from decoder import *
 from peft import PeftModel
+try:
+    from optim.perf import apply_performance_patches
+except Exception:
+    apply_performance_patches = None
 
 def parse_input(s):
     numbers_match = re.search(r'numbers \[(.*?)\]', s)
@@ -169,6 +173,10 @@ def main():
         model = PeftModel.from_pretrained(base_model, args.ckpt)
     else:
         model = AutoModelForCausalLM.from_pretrained(args.ckpt, torch_dtype=torch.bfloat16)
+
+    # Apply performance patches (SDPA/TF32/optional compile) if available
+    if apply_performance_patches is not None:
+        model = apply_performance_patches(model)
 
     model.eval()
     model.cuda()

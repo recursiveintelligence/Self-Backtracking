@@ -17,6 +17,10 @@ from decoder import DECODER_DICT
 from eval_search import eval_ll
 import warnings
 try:
+    from optim.perf import apply_performance_patches
+except Exception:
+    apply_performance_patches = None
+try:
     import wandb
     _WANDB_AVAILABLE = True
 except Exception:
@@ -145,6 +149,7 @@ def train_on_successful_examples(model, tokenizer, training_data, args):
         logging_steps=5,
         report_to="wandb" if args.wandb else "none",
         bf16=True,
+        optim="adamw_torch_fused",
     )
     
     trainer = Trainer(
@@ -245,6 +250,8 @@ def main():
         else:
             model_save_path_past = os.path.join(args.output_dir, f"model_iteration_{t}")
         model = AutoModelForCausalLM.from_pretrained(model_save_path_past, torch_dtype=torch.bfloat16)
+        if apply_performance_patches is not None:
+            model = apply_performance_patches(model)
         tokenizer = AutoTokenizer.from_pretrained(model_save_path_past)
         tokenizer.pad_token = tokenizer.eos_token
         

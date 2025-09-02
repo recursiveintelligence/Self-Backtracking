@@ -25,6 +25,10 @@ except Exception:
     _WANDB_AVAILABLE = False
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+try:
+    from optim.perf import apply_performance_patches
+except Exception:
+    apply_performance_patches = None
 
 def _load_countdown_backtracking_dataset():
     """Load the dataset robustly, with a fallback to raw Hub files.
@@ -147,6 +151,15 @@ def main(args):
         )
         tokenizer = AutoTokenizer.from_pretrained(args.ckpt)
 
+    # Apply performance patches (SDPA/TF32/optional compile) if available
+    if apply_performance_patches is not None:
+        model = apply_performance_patches(model)
+    # Disable KV cache during training to save memory when gradient checkpointing
+    try:
+        model.config.use_cache = False
+    except Exception:
+        pass
+
     print(f"Number of parameters: {model.num_parameters()}")
 
     # load dataset
@@ -258,6 +271,7 @@ def main(args):
         save_steps=config["save_steps"],
         seed=config["seed"],
         bf16=True,
+        optim="adamw_torch_fused",
         push_to_hub=False,
         report_to=("wandb" if use_wandb else "none"),
         run_name=config["name"],
