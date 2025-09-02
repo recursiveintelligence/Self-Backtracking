@@ -14,8 +14,15 @@ from transformers import Trainer
 from transformers import TrainingArguments
 from transformers import AutoConfig
 
-import wandb
+import warnings
 import os
+
+try:
+    import wandb  # optional
+    _WANDB_AVAILABLE = True
+except Exception:
+    wandb = None  # type: ignore
+    _WANDB_AVAILABLE = False
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -31,16 +38,12 @@ def main(args):
     # set up accelerator
     accelerator = Accelerator()
 
-    if args.wandb and accelerator.is_main_process:
-    # if args.wandb:
-        wandb_kwargs = config.get(
-            "wandb",
-            {
-                "project": "",
-                "entity": "",
-                "dir": "",
-            },
-        )
+    use_wandb = bool(args.wandb) and _WANDB_AVAILABLE
+    if args.wandb and not _WANDB_AVAILABLE and accelerator.is_main_process:
+        warnings.warn(
+            "wandb is not installed. Disable --wandb or install it via `pip install wandb`. Disabling wandb logging for this run.")
+    if use_wandb and accelerator.is_main_process:
+        wandb_kwargs = config.get("wandb", {"project": "", "entity": "", "dir": ""})
         wandb.init(
             project=wandb_kwargs["project"],
             # entity=wandb_kwargs["entity"],
@@ -161,7 +164,7 @@ def main(args):
         seed=config["seed"],
         bf16=True,
         push_to_hub=False,
-        report_to="wandb",
+        report_to=("wandb" if use_wandb else "none"),
         run_name=config["name"],
         ddp_find_unused_parameters=False
     )

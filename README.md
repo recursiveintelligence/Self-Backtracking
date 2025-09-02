@@ -51,6 +51,12 @@ Optionally, if you do not use any vision models, removing torchvision completely
 pip uninstall -y torchvision
 ```
 
+Weights & Biases logging is optional. To enable `--wandb`, install it:
+
+```
+pip install wandb
+```
+
 ### Training
 To train the model:
 
