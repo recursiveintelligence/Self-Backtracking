@@ -26,6 +26,83 @@ except Exception:
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+def _load_countdown_backtracking_dataset():
+    """Load the dataset robustly, with a fallback to raw Hub files.
+
+    Returns a DatasetDict with at least a 'train' split. If 'validation'
+    is unavailable upstream, we will later create it from 'train'.
+    """
+    try:
+        return load_dataset("yangxw/countdown-backtracking")
+    except Exception as e:
+        print("Primary dataset load failed, attempting Hub raw file fallback. Error:", e)
+        try:
+            from huggingface_hub import list_repo_files, hf_hub_download
+            repo_id = "yangxw/countdown-backtracking"
+            files = list_repo_files(repo_id, repo_type="dataset")
+
+            def find_candidates(keys, exts):
+                ks = tuple(k.lower() for k in keys)
+                es = tuple(ext.lower() for ext in exts)
+                cands = []
+                for f in files:
+                    low = f.lower()
+                    if any(k in low for k in ks) and low.endswith(es):
+                        cands.append(f)
+                return cands
+
+            train_cands = find_candidates(["train"], [".jsonl", ".json", ".parquet"]) or \
+                          find_candidates(["train"], [".arrow"])  # last resort
+            valid_cands = find_candidates(["validation", "valid", "val"], [".jsonl", ".json", ".parquet"]) or \
+                          find_candidates(["validation", "valid", "val"], [".arrow"])  # last resort
+
+            if not train_cands:
+                raise RuntimeError("No train file found in dataset repo.")
+
+            def pick(cands):
+                # prefer jsonl, then json, then parquet, then arrow
+                priorities = [".jsonl", ".json", ".parquet", ".arrow"]
+                for ext in priorities:
+                    for c in cands:
+                        if c.lower().endswith(ext):
+                            return c, ext
+                return cands[0], os.path.splitext(cands[0])[1].lower()
+
+            train_file, train_ext = pick(train_cands)
+            data_files = {}
+            local_train = hf_hub_download(repo_id=repo_id, filename=train_file, repo_type="dataset")
+
+            if valid_cands:
+                valid_file, valid_ext = pick(valid_cands)
+                local_valid = hf_hub_download(repo_id=repo_id, filename=valid_file, repo_type="dataset")
+            else:
+                valid_file = None
+                local_valid = None
+
+            if train_ext in (".jsonl", ".json"):
+                if local_valid:
+                    data_files = {"train": local_train, "validation": local_valid}
+                else:
+                    data_files = {"train": local_train}
+                ds = load_dataset("json", data_files=data_files)
+            elif train_ext in (".parquet", ".arrow"):
+                if local_valid:
+                    data_files = {"train": local_train, "validation": local_valid}
+                else:
+                    data_files = {"train": local_train}
+                # parquet builder can read .parquet; .arrow is last-resort and may fail depending on version
+                builder = "parquet" if train_ext == ".parquet" else "parquet"
+                ds = load_dataset(builder, data_files=data_files)
+            else:
+                raise RuntimeError(f"Unsupported dataset file extension: {train_ext}")
+
+            return ds
+        except Exception as e2:
+            raise RuntimeError(
+                "Failed to load 'yangxw/countdown-backtracking' via builder and raw file fallback. "
+                "Consider updating 'datasets' or specify local data files."
+            ) from e2
+
 def main(args):
     # read config from a json config file
     with open(args.config, "r") as f:
@@ -73,14 +150,32 @@ def main(args):
     print(f"Number of parameters: {model.num_parameters()}")
 
     # load dataset
-    dataset = load_dataset("yangxw/countdown-backtracking")
+    dataset = _load_countdown_backtracking_dataset()
 
-    val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=False)
-    hf_datasets = DatasetDict({
-        'train': dataset['train'],
-        'val': val_split['train'],
-        # 'val_new': val_split['test'],
-    })
+    # Build a consistent DatasetDict with 'train' and 'val'
+    if 'validation' in dataset:
+        val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=False)
+        hf_datasets = DatasetDict({
+            'train': dataset['train'],
+            'val': val_split['train'],
+            # 'val_new': val_split['test'],
+        })
+    else:
+        # Create a validation split from train if upstream validation is not available
+        split = dataset['train'].train_test_split(test_size=0.01, shuffle=False)
+        hf_datasets = DatasetDict({
+            'train': split['train'],
+            'val': split['test'],
+        })
+
+    # Validate required columns
+    required_cols = {"nums", "target", "search_path"}
+    missing = required_cols - set(hf_datasets["train"].column_names)
+    if missing:
+        raise RuntimeError(
+            f"Dataset missing required columns {sorted(missing)}. Found columns: {hf_datasets['train'].column_names}. "
+            "Please ensure you are using the 'countdown-backtracking' dataset revision that includes 'search_path'."
+        )
 
     
     random_indices = random.sample(range(len(hf_datasets["train"])), int(config["num_train"]))

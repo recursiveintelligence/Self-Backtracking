@@ -57,6 +57,11 @@ Weights & Biases logging is optional. To enable `--wandb`, install it:
 pip install wandb
 ```
 
+### Dataset Notes
+- The training scripts expect the Hugging Face dataset `yangxw/countdown-backtracking` with columns: `nums`, `target`, and `search_path`.
+- If the upstream dataset script is temporarily inconsistent, the code falls back to downloading raw files from the Hub and constructing the dataset locally.
+- If `search_path` is missing, training cannot proceed. Please retry after the upstream dataset is fixed or supply local files that include these columns.
+
 ### Training
 To train the model:
 

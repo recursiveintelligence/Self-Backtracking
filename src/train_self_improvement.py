@@ -15,7 +15,13 @@ from transformers import (
 from datasets import load_dataset, DatasetDict
 from decoder import DECODER_DICT
 from eval_search import eval_ll
-import wandb
+import warnings
+try:
+    import wandb
+    _WANDB_AVAILABLE = True
+except Exception:
+    wandb = None  # type: ignore
+    _WANDB_AVAILABLE = False
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def parse_args():
@@ -164,18 +170,65 @@ def main():
     random.seed(args.seed)
     
     # Initialize wandb if requested
-    if args.wandb:
+    if args.wandb and not _WANDB_AVAILABLE:
+        warnings.warn("wandb is not installed. Disable --wandb or `pip install wandb`. Disabling wandb logging.")
+    if args.wandb and _WANDB_AVAILABLE:
         wandb.init(project="self-improvement-training")
     
     # Load evaluation data
-    dataset = load_dataset("yangxw/countdown-backtracking")
+    # Robust dataset load (reuse eval's approach)
+    def _load_ds():
+        try:
+            return load_dataset("yangxw/countdown-backtracking")
+        except Exception as e:
+            print("Primary dataset load failed, trying fallback via Hub raw files. Error:", e)
+            try:
+                from huggingface_hub import list_repo_files, hf_hub_download
+                repo_id = "yangxw/countdown-backtracking"
+                files = list_repo_files(repo_id, repo_type="dataset")
+                def find(keys, exts):
+                    ks = tuple(k.lower() for k in keys)
+                    es = tuple(ext.lower() for ext in exts)
+                    return [f for f in files if any(k in f.lower() for k in ks) and f.lower().endswith(es)]
+                train_cands = find(["train"], [".jsonl", ".json", ".parquet", ".arrow"]) 
+                valid_cands = find(["validation", "valid", "val"], [".jsonl", ".json", ".parquet", ".arrow"]) 
+                if not train_cands:
+                    raise RuntimeError("No train file found in dataset repo.")
+                def pick(cands):
+                    for ext in [".jsonl", ".json", ".parquet", ".arrow"]:
+                        for c in cands:
+                            if c.lower().endswith(ext):
+                                return c, ext
+                    return cands[0], ".json"
+                train_file, train_ext = pick(train_cands)
+                local_train = hf_hub_download(repo_id=repo_id, filename=train_file, repo_type="dataset")
+                data_files = {"train": local_train}
+                if valid_cands:
+                    valid_file, _ = pick(valid_cands)
+                    local_valid = hf_hub_download(repo_id=repo_id, filename=valid_file, repo_type="dataset")
+                    data_files["validation"] = local_valid
+                builder = "json" if train_ext in (".jsonl", ".json") else "parquet"
+                return load_dataset(builder, data_files=data_files)
+            except Exception as e2:
+                raise RuntimeError("Failed to load dataset via both builder and raw file fallback.") from e2
 
-    val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=False)
-    hf_datasets = DatasetDict({
-        'train': dataset['train'],
-        'val': val_split['train'],
-        'val_new': val_split['test'],
-    })
+    dataset = _load_ds()
+
+    if 'validation' in dataset:
+        val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=False)
+        hf_datasets = DatasetDict({
+            'train': dataset['train'],
+            'val': val_split['train'],
+            'val_new': val_split['test'],
+        })
+    else:
+        split = dataset['train'].train_test_split(test_size=0.01, shuffle=False)
+        val_split = split['test'].train_test_split(test_size=0.5, shuffle=False)
+        hf_datasets = DatasetDict({
+            'train': split['train'],
+            'val': val_split['train'],
+            'val_new': val_split['test'],
+        })
     if args.data == 'val':
         data = hf_datasets['val']
     elif args.data == 'val_new':
@@ -200,7 +253,7 @@ def main():
         training_data, accuracy = get_training_examples(t, model, tokenizer, eval_data, args)
         print(f"Collected {len(training_data['nums'])} successful examples for training")
         # exit(0)
-        if args.wandb:
+        if args.wandb and _WANDB_AVAILABLE:
             wandb.log({
                 f"initial_accuracy_{t}": accuracy,
                 f"num_training_examples_{t}": len(training_data["nums"])
@@ -217,7 +270,7 @@ def main():
     
     print(f"Evaluating model to collect successful examples for iteration {args.times}...")
     training_data, accuracy = get_training_examples(args.times, model, tokenizer, eval_data, args)
-    if args.wandb:
+    if args.wandb and _WANDB_AVAILABLE:
         wandb.finish()
 
 if __name__ == "__main__":
