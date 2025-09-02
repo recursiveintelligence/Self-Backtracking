@@ -20,6 +20,37 @@ The project utilizes the Countdown dataset, which is pre-constructed and accessi
 [![Model](https://img.shields.io/badge/Model-countdown--backtrack-blue.svg)](https://huggingface.co/yangxw/Llama-3.2-1B-countdown-backtrack)
 ## Getting Started
 
+### Environment Setup (important)
+- Python: 3.10–3.11 recommended.
+- Create and activate a virtual environment.
+- Install pinned dependencies to avoid NumPy/torch/torchvision ABI issues:
+
+```
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install -U pip setuptools wheel
+pip install --no-cache-dir --upgrade --force-reinstall -r requirements.txt
+```
+
+If you still see errors like "A module that was compiled using NumPy 1.x cannot be run in NumPy 2.x" or
+"module 'torch.library' has no attribute 'register_fake'", ensure these pairs are installed and active:
+
+- numpy==1.26.4
+- torch==2.1.2 and torchvision==0.16.2 (matching versions)
+
+You can enforce this with:
+
+```
+pip uninstall -y numpy torchvision
+pip install --no-cache-dir numpy==1.26.4 torchvision==0.16.2
+```
+
+Optionally, if you do not use any vision models, removing torchvision completely also avoids the import path:
+
+```
+pip uninstall -y torchvision
+```
+
 ### Training
 To train the model:
 
