@@ -2,6 +2,7 @@ import os
 import warnings
 import torch
 import torch.nn as nn
+from torch.autograd import Function
 
 
 def _has_triton():
@@ -20,26 +21,133 @@ if _has_triton():
     @triton.jit
     def _rmsnorm_fwd(X, W, Y, N, eps, BLOCK: tl.constexpr):
         pid = tl.program_id(0)
-        offs = pid * N + tl.arange(0, BLOCK)
-        sumsq = tl.zeros([BLOCK], dtype=tl.float32)
-        # Accumulate sum of squares across feature dim (N)
-        for n in range(0, tl.cdiv(N, BLOCK)):
-            idx = n * BLOCK + tl.arange(0, BLOCK)
-            mask = idx < N
-            x = tl.load(X + pid * N + idx, mask=mask, other=0.0)
+        # Compute row base pointer
+        row_x = X + pid * N
+        row_y = Y + pid * N
+
+        # 1) Reduce sum of squares across the feature dimension
+        accum = tl.zeros([BLOCK], dtype=tl.float32)
+        for off in range(0, tl.cdiv(N, BLOCK)):
+            idx = off * BLOCK + tl.arange(0, BLOCK)
+            m = idx < N
+            x = tl.load(row_x + idx, mask=m, other=0.0)
             x = x.to(tl.float32)
-            sumsq += x * x
-        mean = tl.sum(sumsq, axis=0) / N
+            accum += x * x
+        mean = tl.sum(accum, axis=0) / N
         inv = 1.0 / tl.sqrt(mean + eps)
 
-        # Write normalized result with weight
-        for n in range(0, tl.cdiv(N, BLOCK)):
-            idx = n * BLOCK + tl.arange(0, BLOCK)
-            mask = idx < N
-            x = tl.load(X + pid * N + idx, mask=mask, other=0.0)
-            w = tl.load(W + idx, mask=mask, other=1.0)
-            y = (x * inv) * w
-            tl.store(Y + pid * N + idx, y, mask=mask)
+        # 2) Normalize and apply weight
+        for off in range(0, tl.cdiv(N, BLOCK)):
+            idx = off * BLOCK + tl.arange(0, BLOCK)
+            m = idx < N
+            x = tl.load(row_x + idx, mask=m, other=0.0)
+            w = tl.load(W + idx, mask=m, other=1.0)
+            y = (x.to(tl.float32) * inv) * w.to(tl.float32)
+            if tl.typeof(Y) == tl.pointer_type(tl.float16):
+                y = y.to(tl.float16)
+            elif tl.typeof(Y) == tl.pointer_type(tl.bfloat16):
+                y = y.to(tl.bfloat16)
+            tl.store(row_y + idx, y, mask=m)
+
+    @triton.jit
+    def _rmsnorm_bwd(X, W, DY, DX, DW, N, eps, BLOCK: tl.constexpr):
+        """
+        Backward for RMSNorm (per-row program):
+        Given y = w * x * r, r = 1/sqrt(mean(x^2)+eps)
+        Let g = dy * w.
+        dx = r * g - (r^3 / N) * x * sum(g * x)
+        dW = sum_over_rows(dy * x * r)
+        DW is float32 accumulation buffer (global reduction via atomics).
+        """
+        pid = tl.program_id(0)
+        row_x = X + pid * N
+        row_dy = DY + pid * N
+        row_dx = DX + pid * N
+
+        # 1) Compute r and dot = sum(g * x)
+        # accumulate sumsq to compute r
+        accum = tl.zeros([BLOCK], dtype=tl.float32)
+        for off in range(0, tl.cdiv(N, BLOCK)):
+            idx = off * BLOCK + tl.arange(0, BLOCK)
+            m = idx < N
+            x = tl.load(row_x + idx, mask=m, other=0.0).to(tl.float32)
+            accum += x * x
+        mean = tl.sum(accum, axis=0) / N
+        r = 1.0 / tl.sqrt(mean + eps)
+
+        # compute dot = sum(g * x) with g = dy * w
+        dot_acc = tl.zeros([BLOCK], dtype=tl.float32)
+        for off in range(0, tl.cdiv(N, BLOCK)):
+            idx = off * BLOCK + tl.arange(0, BLOCK)
+            m = idx < N
+            x = tl.load(row_x + idx, mask=m, other=0.0).to(tl.float32)
+            dy = tl.load(row_dy + idx, mask=m, other=0.0).to(tl.float32)
+            w = tl.load(W + idx, mask=m, other=1.0).to(tl.float32)
+            g = dy * w
+            dot_acc += g * x
+        dot = tl.sum(dot_acc, axis=0)
+
+        # 2) Write dx and accumulate dW
+        scale = r
+        coeff = (r * r * r) / N  # r^3 / N
+        for off in range(0, tl.cdiv(N, BLOCK)):
+            idx = off * BLOCK + tl.arange(0, BLOCK)
+            m = idx < N
+            x = tl.load(row_x + idx, mask=m, other=0.0).to(tl.float32)
+            dy = tl.load(row_dy + idx, mask=m, other=0.0).to(tl.float32)
+            w = tl.load(W + idx, mask=m, other=1.0).to(tl.float32)
+            g = dy * w
+            dx = scale * g - coeff * x * dot
+            # Store dx in the same dtype as input
+            if tl.typeof(DX) == tl.pointer_type(tl.float16):
+                dx_cast = dx.to(tl.float16)
+            elif tl.typeof(DX) == tl.pointer_type(tl.bfloat16):
+                dx_cast = dx.to(tl.bfloat16)
+            else:
+                dx_cast = dx
+            tl.store(row_dx + idx, dx_cast, mask=m)
+            # dW contribution: dy * x * r (accumulate in fp32)
+            dwi = dy * x * r
+            tl.atomic_add(DW + idx, dwi, mask=m)
+
+
+class _TritonRMSNormFn(Function):
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, weight: torch.Tensor, eps: float):
+        assert x.is_cuda and weight.is_cuda, "Triton RMSNorm requires CUDA tensors"
+        N = x.shape[-1]
+        B = x.numel() // N
+        x_2d = x.contiguous().view(B, N)
+        y = torch.empty_like(x_2d)
+        BLOCK = 128
+        grid = (B,)
+        _rmsnorm_fwd[grid](
+            x_2d, weight, y, N, eps, BLOCK=BLOCK
+        )
+        ctx.save_for_backward(x_2d, weight)
+        ctx.N = N
+        ctx.eps = eps
+        return y.view_as(x)
+
+    @staticmethod
+    def backward(ctx, dy: torch.Tensor):
+        x, w = ctx.saved_tensors
+        N, eps = ctx.N, ctx.eps
+        B = x.shape[0]
+
+        dy_2d = dy.contiguous().view(B, N)
+        dx = torch.empty_like(dy_2d)
+        # Accumulate dW in fp32 for numerical stability
+        dW_accum = torch.zeros_like(w, dtype=torch.float32)
+
+        BLOCK = 128
+        grid = (B,)
+        _rmsnorm_bwd[grid](
+            x, w, dy_2d, dx, dW_accum, N, eps, BLOCK=BLOCK
+        )
+        # Match parameter dtype
+        dW = dW_accum.to(w.dtype)
+        return dx.view_as(dy), dW, None
 
 
 class TritonRMSNorm(nn.Module):
@@ -53,17 +161,13 @@ class TritonRMSNorm(nn.Module):
         assert x.shape[-1] == self.normalized_shape, "Last dim mismatch for RMSNorm"
         if x.numel() == 0:
             return x
-        y = torch.empty_like(x)
-        # Flatten batch dims, keep last dim as feature
-        B = x.numel() // self.normalized_shape
-        X = x.contiguous().view(B, self.normalized_shape)
-        Y = y.view(B, self.normalized_shape)
-        BLOCK = 128
-        grid = (B,)
-        _rmsnorm_fwd[grid](
-            X, self.weight, Y, self.normalized_shape, self.eps, BLOCK=BLOCK
-        )
-        return y
+        if not x.is_cuda:
+            # CPU fallback uses PyTorch ops (keeps autograd)
+            var = (x.to(torch.float32) ** 2).mean(dim=-1, keepdim=True)
+            r = torch.rsqrt(var + self.eps)
+            y = x * r * self.weight
+            return y
+        return _TritonRMSNormFn.apply(x, self.weight, self.eps)
 
 
 def _replace_llama_rmsnorm(model: nn.Module, eps: float = 1e-5) -> int:
@@ -82,6 +186,8 @@ def _replace_llama_rmsnorm(model: nn.Module, eps: float = 1e-5) -> int:
             parent = model.get_submodule(parent_name) if parent_name else model
             child_name = name.split('.')[-1]
             triton_norm = TritonRMSNorm(module.weight.numel(), eps=module.variance_epsilon, dtype=module.weight.dtype)
+            # Match device/dtype to replaced module's weight
+            triton_norm = triton_norm.to(device=module.weight.device, dtype=module.weight.dtype)
             with torch.no_grad():
                 triton_norm.weight.copy_(module.weight)
             setattr(parent, child_name, triton_norm)
@@ -104,4 +210,3 @@ def try_patch_rmsnorm(model: nn.Module) -> None:
             warnings.warn("No LlamaRMSNorm modules found to replace.")
     except Exception as e:
         warnings.warn(f"Failed to replace RMSNorm with Triton version: {e}")
-

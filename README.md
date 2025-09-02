@@ -102,7 +102,13 @@ AZR_COMPILE=1 CUDA_VISIBLE_DEVICES=0 python src/eval_search.py --decoder self_ba
 
 - Training uses fused AdamW (`optim="adamw_torch_fused"`) for faster optimizer steps.
 
-- Optional Triton RMSNorm: enable with `AZR_TRITON_RMSNORM=1` if Triton is available to replace Llama RMSNorm with a fused Triton kernel.
+- Optional Triton RMSNorm: enable with `AZR_TRITON_RMSNORM=1` if Triton is available to replace Llama RMSNorm with a fused Triton kernel (forward + backward).
+
+- Optional Triton RoPE: enable with `AZR_TRITON_ROPE=1` to patch LLaMA rotary embedding with a fused Triton kernel (forward + backward) applied to Q/K.
+
+- Optional Fused QKV: enable with `AZR_FUSE_QKV=1` to fuse `q_proj`/`k_proj`/`v_proj` into a single GEMM per attention block via a light monkey-patch. Parameters and HF APIs remain compatible.
+
+- Optional RoPE Epilogue (on-the-fly): set `AZR_ROPE_EPI=1` along with `AZR_TRITON_ROPE=1` to compute RoPE angles inside the Triton kernel using the model's `inv_freq` and `position_ids`. This eliminates cos/sin gathers and further reduces memory traffic. Requires CUDA.
 
 ### Self-Improvement
 To further improve the model, you can run the following command:

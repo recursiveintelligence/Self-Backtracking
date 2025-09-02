@@ -23,6 +23,9 @@ def enable_torch_backend_flags():
     except Exception as e:
         warnings.warn(f"SDPA toggles not applied: {e}")
 
+    # Optional allocator tuning to reduce fragmentation on large models
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 
 def prefer_sdpa_in_transformers(model):
     """
@@ -74,6 +77,24 @@ def apply_performance_patches(model):
     try:
         from .rmsnorm_triton import try_patch_rmsnorm
         try_patch_rmsnorm(model)
+    except Exception:
+        pass
+    # Optional fused QKV (single GEMM for q/k/v) for LLaMA attention
+    try:
+        from .fused_qkv import try_patch_llama_fused_qkv
+        try_patch_llama_fused_qkv(model)
+    except Exception:
+        pass
+    # Optional RoPE fast path for LLaMA (Triton kernel)
+    try:
+        from .rope_triton import try_patch_rope
+        try_patch_rope(model)
+    except Exception:
+        pass
+    # Hint non-reentrant checkpointing when supported (lower overhead in PyTorch 2.3+)
+    try:
+        if hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     except Exception:
         pass
     model = maybe_compile(model)
