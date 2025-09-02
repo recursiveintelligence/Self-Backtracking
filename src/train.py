@@ -191,8 +191,23 @@ def main(args):
         )
 
     
-    random_indices = random.sample(range(len(hf_datasets["train"])), int(config["num_train"]))
-    hf_datasets["train"] = hf_datasets["train"].select(random_indices)
+    # Subsample training set by percentage (default 2%).
+    # Prefer new 'dataset_percent' hyperparam; fallback to legacy 'num_train' if provided.
+    train_len = len(hf_datasets["train"])
+    dataset_percent = float(config.get("dataset_percent", 2.0))
+    n_train: int
+    if "dataset_percent" in config:
+        frac = max(0.0, min(100.0, dataset_percent)) * 0.01
+        n_train = max(1, int(round(frac * train_len)))
+    elif "num_train" in config:
+        n_train = max(1, min(int(config["num_train"]), train_len))
+    else:
+        # default 2%
+        n_train = max(1, int(round(0.02 * train_len)))
+    if n_train < train_len:
+        random_indices = random.sample(range(train_len), n_train)
+        hf_datasets["train"] = hf_datasets["train"].select(random_indices)
+    print(f"Using {len(hf_datasets['train'])}/{train_len} training examples (~{100.0*len(hf_datasets['train'])/max(1,train_len):.2f}%).")
     print('Dataset Length: ', len(hf_datasets["train"] ))
     context_length = config["context_length"]
     tokenizer.model_max_length = context_length

@@ -71,6 +71,8 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 ```
 You can change the parameters in the `configs/sft.conf` file.
 
+- New: control training subset size with `dataset_percent` (default 2.0). Example: set to 5 for training on 5% of the dataset. If `dataset_percent` is not present, the script falls back to the legacy `num_train` count; otherwise it defaults to 2%.
+
 If you want to use multiple GPUs:
 ```bash
 accelerate launch \
